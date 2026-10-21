@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DOOMSDAY &ndash; ragdoll FPS (playtest)</title>
+<meta name="description" content="Single-level browser FPS: win by eliminating every target, lose if you die. Dead enemies become physics ragdolls.">
+<style>
+  html,body{margin:0;background:#06080b;color:#e8eef4;font-family:ui-monospace,SFMono,Menlo,Consolas,monospace;overflow:hidden}
+  #gl{position:fixed;inset:0;display:block;width:100vw;height:100vh;touch-action:none;cursor:crosshair}
+  #frame{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 30px rgba(0,0,0,.95);z-index:21}
+  #hud{position:fixed;inset:0;pointer-events:none;user-select:none;z-index:20}
+  .hud{position:absolute;left:14px;top:12px;font-size:13px;line-height:1.3;text-shadow:0 0 6px #000}
+  .hud b{color:#f0ad4e;font-weight:700}
+  .hud i{color:#8fb4c8;font-style:normal}
+  .hud em{color:#ff6b5e;font-weight:700;font-style:normal}
+  .hud s{color:#78d48e;font-weight:700;font-style:normal}
+  .hud q{color:#798694;font-style:normal}
+  .hud .blink{animation:bl .7s steps(2) infinite}
+  @keyframes bl{0%,49%{opacity:1}50%,100%{opacity:.4}}
+  #xhair{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;pointer-events:none;z-index:22;opacity:.92;
+    background:
+      radial-gradient(circle,rgba(0,0,0,0) 2px,rgba(240,173,78,.9) 2px 3px,rgba(0,0,0,0) 3px),
+      linear-gradient(0deg,rgba(240,173,78,.8) 0 6px,transparent 6px 12px) center top,
+      linear-gradient(180deg,rgba(240,173,78,.8) 0 6px,transparent 6px 12px) center bottom,
+      linear-gradient(90deg,rgba(240,173,78,.8) 0 6px,transparent 6px 12px) center left,
+      linear-gradient(270deg,rgba(240,173,78,.8) 0 6px,transparent 6px 12px) center right}
+  #xhair.x{width:34px;height:34px;margin:-17px 0 0 -17px;opacity:1;background:
+      linear-gradient(45deg,rgba(255,255,255,.95) 0 9px,transparent 9px),
+      linear-gradient(225deg,rgba(255,255,255,.95) 0 9px,transparent 9px),
+      linear-gradient(135deg,rgba(255,255,255,.95) 0 9px,transparent 9px),
+      linear-gradient(315deg,rgba(255,255,255,.95) 0 9px,transparent 9px)}
+  #vig{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:23;background:radial-gradient(circle,rgba(140,0,0,0) 42%,rgba(170,10,10,.92))}
+  #flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:rgba(210,190,120,.16);z-index:19}
+  #menu{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    background:radial-gradient(circle at 50% 30%,rgba(10,16,22,.86),rgba(4,6,8,.96))}
+  #menu h1{font-size:min(6vw,46px);letter-spacing:2px;margin:0 0 10px}
+  #menu p{font-size:14px;line-height:1.55;maxWidth:none;margin:0 0 14px;color:#a9b6c2}
+  #menu .btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:0}
+  #menu button{cursor:pointer;font-size:15px;padding:9px 16px;border:1px solid #3d4b57;background:#101a22;color:#e8eef4;border-radius:4px}
+  #menu button.hot{color:#f0ad4e;border-color:#f0ad4e}
+  #menu button.on{color:#78d48e;border-color:#78d48e}
+  #menu .stamp{position:absolute;right:14px;bottom:12px;font-size:11px;color:#f0ad4e}
+  #menu .tag{position:absolute;left:14px;bottom:12px;font-size:11px;color:#5d6c78}
+  .card{position:fixed;inset:0;z-index:28;display:none;align-items:center;justify-content:center;flex-direction:column;
+    background:rgba(4,6,8,.82)}
+  #pause{pointer-events:none}
+  .card h2{font-size:min(8vw,62px);margin:0 0 6px;letter-spacing:3px}
+  .card .sub{font-size:min(3.4vw,26px);margin:0 0 10px;color:#a9b6c2}
+  .card .line{font-size:14px;line-height:1.5;color:#8ea0ae;margin:0 0 16px;text-align:center}
+  .card button{cursor:pointer;font-size:15px;padding:10px 18px;border:1px solid #3d4b57;background:#101a22;color:#e8eef4;border-radius:4px}
+  .card .stamp{position:absolute;right:14px;bottom:12px;font-size:11px;color:#f0ad4e}
+  .card.k-won h2{color:#78d48e}
+  .card.k-lost h2{color:#ff5b4e}
+  .card.k-drawn h2{color:#f0ad4e}
+</style>
+</head>
+<body>
+<canvas id="gl" width="1280" height="720"></canvas>
+<div id="frame"></div>
+<div id="vig"></div>
+<div id="flash"></div>
+<div id="hud"><div class="hud" id="hudTxt"></div></div>
+<div id="xhair"></div>
+
+<div id="menu">
+  <h1>DOOMSDAY</h1>
+  <p class="tag2" id="brief">DOWNSIDE YARD &ndash; one level. <b id="totline">35 targets</b>, every one of them a kill: shoot them, and when they die they go limp as real physics ragdolls that fall, tumble and bounce off the scenery. You lose if your health hits zero. Clear the whole yard to win.</p>
+  <div class="btns" id="btns"></div>
+  <div class="stamp" id="stamp">BUILD 1 &middot; playtest stamp #f0ad4e &middot; three.js r165 + cannon-es 0.20</div>
+  <div class="tag" id="verline">ragdoll FPS &middot; single level &middot; win = all targets dead &middot; lose = you die</div>
+</div>
+
+<div class="card" id="won"><h2>ALL TARGETS ELIMINATED</h2><div class="sub" id="wonsub"></div><div class="line" id="wonstats"></div><div class="btns" id="wonbtns"></div><div class="stamp" id="wonstamp">BUILD 1 &middot; playtest stamp #f0ad4e</div></div>
+<div class="card" id="lost"><h2>YOU ARE DEAD</h2><div class="sub" id="lostsub"></div><div class="line" id="loststats"></div><div class="btns" id="lostbtns"></div><div class="stamp" id="loststamp">BUILD 1 &middot; playtest stamp #f0ad4e</div></div>
+<div class="card" id="pause"><h2>PAUSED</h2><div class="sub" id="pauseSub"></div><div class="line" id="pauseStats"></div><div class="btns" id="pauseBtns"></div><div class="stamp" id="pauseStamp">BUILD 1 &middot; playtest stamp #f0ad4e</div></div>
+
+<script type="module" src="./game.js?v=1"></script>
+<script type="module">
+addEventListener('DOMContentLoaded', function () {
+  setTimeout(function () {
+    if (!window.__game_boot) {
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;inset:0;z-index:40;background:#0a0e12;color:#ff6b5e;font-family:ui-monospace,monospace;font-size:15px;padding:14px';
+      d.textContent = 'ERROR: game boot failed (code 2). ' + (window.__game_boot_msg || 'no boot trace');
+      document.body.appendChild(d);
+    }
+  }, 2200);
+});
+</script>
+</body>
+</html>
