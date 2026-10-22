@@ -175,32 +175,37 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => onKey((e.key || '').toLowerCase(), 0));
 const input = { pointerCaptured: false, real: false, fire: false, fireAlt: false, sens: 0.0027 };
-let lastMX = 0, lastMY = 0;
+let lastMX = 0, lastMY = 0, lockReq = false;
 function setFree() {
   if (!input.pointerCaptured) return;
   input.pointerCaptured = false;
   input.real = false;
+  lockReq = false;
   canvas.style.cursor = '';
   try { document.exitPointerLock(); } catch (_) {}
 }
 function setCaptured(e) {
-  lastMX = e.clientX || 0;
-  lastMY = e.clientY || 0;
+  lastMX = (e.clientX == null ? 0 : e.clientX);
+  lastMY = (e.clientY == null ? 0 : e.clientY);
   input.pointerCaptured = true;
+  input.real = false;
   canvas.style.cursor = 'none';
+  lockReq = true;
   try {
     const pr = canvas.requestPointerLock();
-    if (pr && typeof pr.catch === 'function') pr.catch(() => {});
-  } catch (_) {}
+    if (pr && typeof pr.catch === 'function') pr.catch(() => { lockReq = false; });
+    else if (!pr) lockReq = false;
+  } catch (_) { lockReq = false; }
 }
 addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === canvas) {
     input.pointerCaptured = true;
     input.real = true;
+    lockReq = false;
     canvas.style.cursor = 'none';
-  } else setFree();
+  } else if (!lockReq) setFree();
 });
-addEventListener('pointerlockerror', () => { input.real = false; });
+addEventListener('pointerlockerror', () => { lockReq = false; input.real = false; });
 canvas.addEventListener('mousedown', e => {
   if (!input.pointerCaptured) {
     if (state === 'play') setCaptured(e);
@@ -215,21 +220,32 @@ canvas.addEventListener('mouseup', e => {
 });
 addEventListener('mousemove', e => {
   if (!input.pointerCaptured) return;
+  const mx = (e.movementX == null ? 0 : e.movementX);
+  const my = (e.movementY == null ? 0 : e.movementY);
   let dx, dy;
   if (input.real) {
-    dx = e.movementX || 0;
-    dy = e.movementY || 0;
+    dx = mx; dy = my;
+  } else if (e.clientX == null || e.clientY == null) {
+    if (!mx && !my) return;
+    input.real = true;
+    dx = mx; dy = my;
   } else {
     const w = innerWidth, h = innerHeight;
     let x = e.clientX, y = e.clientY;
-    if (x === undefined || y === undefined) return;
     if (x < 0) x = 0; else if (x > w) x = w;
     if (y < 0) y = 0; else if (y > h) y = h;
-    dx = x - lastMX; dy = y - lastMY;
+    const sdx = x - lastMX, sdy = y - lastMY;
     lastMX = x; lastMY = y;
+    dx = sdx; dy = sdy;
     const clw = w * 0.25, clh = h * 0.25;
     if (dx > clw) dx = clw; else if (dx < -clw) dx = -clw;
     if (dy > clh) dy = clh; else if (dy < -clh) dy = -clh;
+    if (sdx === 0 && sdy === 0 && (mx || my)) {
+      // client coords frozen but movement real: the browser DID lock the
+      // pointer (pointerlockchange never confirmed it in this environment)
+      input.real = true;
+      dx = mx; dy = my;
+    }
   }
   P.yaw -= dx * input.sens;
   P.pitch = cl(P.pitch - dy * input.sens, -1.45, 1.4);
@@ -813,9 +829,11 @@ window.__test = {
   state: function () { return state; },
   start: function (d) { startGame(d === undefined ? 1 : d); },
   goto: function (x, z) { P.x = x; P.z = z; },
-  aimAt: function (i) { aimAt(i); },
+  aimAt: function (i) { window.__tgt = i; aimAt(i); },
   fire: function (w) { if (w !== undefined && w !== null) cur = w; input.pointerCaptured = true; input.fire = true; },
   hold: function (v) { input.fire = !!v; },
+  cont: function () { input.fire = true; if (window.__tgt !== undefined) aimAt(window.__tgt); },
+  sim: function (n) { for (let i = 0; i < n; i++) { playerStep(STEP); enemyAI(STEP); shot(STEP); world.step(1 / 60); syncRags(); stepGrenades(STEP); fxStep(STEP); } ragCleanup(0.016); },
   hurt: function (v) { hurtPlayer(v); },
   hp: function (v) { if (v === undefined) return P.hp; P.hp = v; },
   god: function (v) { godMode = !!v; },
@@ -823,6 +841,13 @@ window.__test = {
   nbadies: function () { return world.bodies.length; },
   bpos: function () { return world.bodies.map(b => [Math.round(b.position.x * 100) / 100, Math.round(b.position.y * 100) / 100, Math.round(b.position.z * 100) / 100]); },
   pos: function () { return [Math.round(P.x * 100) / 100, Math.round(P.y * 100) / 100, Math.round(P.z * 100) / 100]; },
+  yaw: function () { return [Math.round(P.yaw * 1000) / 1000, Math.round(P.pitch * 1000) / 1000]; },
+  cap: function () { return input.pointerCaptured; },
+  real: function () { return input.real; },
+  fireq: function () { return [input.fire, input.pointerCaptured, paused, Math.round(cool * 10000) / 10000, Math.round(recoil * 10000) / 10000, GRA.length]; },
+  apos: function () { return EN.map(e => [Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10, e.alive ? 1 : 0]); },
+  ehp: function () { return EN.map(e => Math.round(e.hp * 10) / 10); },
+  hit: function (i) { const e = EN[i]; aimAt(i); const pc = Math.cos(P.pitch), ps = Math.sin(P.pitch), yc = Math.cos(P.yaw), ys = Math.sin(P.yaw); const fx = -ys * pc, fy = ps, fz = -yc * pc; const ox = P.x + fx * 0.7 + yc * 0.16, oy = P.y + eyeH - 0.06, oz = P.z + fz * 0.7 - ys * 0.16; const h = rayHit(ox, oy, oz, fx, fy, fz, 160); return [Math.round(h.t * 100) / 100, h.en === null ? -1 : EN.indexOf(h.en), h.part]; },
   info: function () { return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, progs: renderer.info.programs.length }; },
   snap: function () {
     renderer.render(scene, cam);
