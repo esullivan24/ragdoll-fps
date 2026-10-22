@@ -385,7 +385,7 @@ function spawnEnemy(x, y, z) {
   EN.push({ x, y, z, hp: 100, alive: true, body: b, grp: g, cd: rr(0.4, 2.2), ph: rr(0, 6.3), sx: x, sz: z, kind: y > 0.5 ? 1 : 0 });
   return EN.length - 1;
 }
-for (let i = 0; i < SPAWN.length; i++) spawnEnemy(SPAWN[i][0], SPAWN[i][1], SPAWN[i][2]);
+for (const s of SPAWN) spawnEnemy(s[0], s[2], s[1]); // SPAWN rows are [x, z, height]
 /* ---------- fx pool ---------- */
 const flashEl = document.getElementById('flash');
 const FX = [];
