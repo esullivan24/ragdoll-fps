@@ -319,14 +319,14 @@ const SPAWN = [
   [8, 22, 0], [-26, 20, 0], [28, 12, 0], [-14, -22, 0], [30, 24, 0],
   [-18, -12, 2.7], [17, -5, 2.7], [0, -3, 2.7], [-23, 9, 5.5], [14, 16, 5.5],
   [24, 2, 2.7], [26, -26, 2.1]];
-function losTo(x1, y1, z1, x2, y2, z2) {
+function losTo(x1, y1, z1, x2, y2, z2) { // exact segment occlusion (was point-sampling, which skipped thin boxes)
   let dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
   const d = Math.hypot(dx, dy, dz);
   if (d < 0.3) return true;
   dx /= d; dy /= d; dz /= d;
-  for (let t = 0.6; t < d; t += Math.max(0.4, d / 24)) {
-    const px = x1 + dx * t, py = y1 + dy * t, pz = z1 + dz * t;
-    for (const s of ST) if (px > s[0] && px < s[1] && py > s[2] && py < s[3] && pz > s[4] && pz < s[5]) return false;
+  for (const s of ST) {
+    const t = rayAABB(x1, y1, z1, dx, dy, dz, s);
+    if (t > 1e-4 && t < d - 0.05) return false;
   }
   return true;
 }
@@ -882,6 +882,7 @@ window.__test = {
   ehp: function () { return EN.map(e => Math.round(e.hp * 10) / 10); },
   crouch: function (v) { if (v !== undefined) P.crouch = !!v; return P.crouch; },
   eye: function () { return [Math.round(phP * 100) / 100, Math.round(eyeH * 100) / 100, P.crouch ? 1 : 0]; },
+  los: function (x1, y1, z1, x2, y2, z2) { return losTo(x1, y1, z1, x2, y2, z2); },
   hit: function (i) { const e = EN[i]; aimAt(i); const pc = Math.cos(P.pitch), ps = Math.sin(P.pitch), yc = Math.cos(P.yaw), ys = Math.sin(P.yaw); const fx = -ys * pc, fy = ps, fz = -yc * pc; const ox = P.x + fx * 0.7 + yc * 0.16, oy = P.y + eyeH - 0.06, oz = P.z + fz * 0.7 - ys * 0.16; const h = rayHit(ox, oy, oz, fx, fy, fz, 160); return [Math.round(h.t * 100) / 100, h.en === null ? -1 : EN.indexOf(h.en), h.part]; },
   info: function () { return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, progs: renderer.info.programs.length }; },
   snap: function () {
