@@ -175,12 +175,13 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => onKey((e.key || '').toLowerCase(), 0));
 const input = { pointerCaptured: false, real: false, fire: false, fireAlt: false, sens: 0.0027 };
-let lastMX = 0, lastMY = 0, lockReq = false;
+let lastMX = 0, lastMY = 0, lockReq = false, lockSure = false;
 function setFree() {
   if (!input.pointerCaptured) return;
   input.pointerCaptured = false;
   input.real = false;
   lockReq = false;
+  lockSure = false;
   canvas.style.cursor = '';
   try { document.exitPointerLock(); } catch (_) {}
 }
@@ -193,7 +194,7 @@ function setCaptured(e) {
   lockReq = true;
   try {
     const pr = canvas.requestPointerLock();
-    if (pr && typeof pr.catch === 'function') pr.catch(() => { lockReq = false; });
+    if (pr && typeof pr.catch === 'function') pr.then(() => { lockReq = false; }, () => { lockReq = false; });
     else if (!pr) lockReq = false;
   } catch (_) { lockReq = false; }
 }
@@ -202,10 +203,24 @@ addEventListener('pointerlockchange', () => {
     input.pointerCaptured = true;
     input.real = true;
     lockReq = false;
+    lockSure = true;
     canvas.style.cursor = 'none';
   } else if (!lockReq) setFree();
 });
 addEventListener('pointerlockerror', () => { lockReq = false; input.real = false; });
+function syncLockWatch() {
+  // Escape-release watchdog. Chrome consumes the first Escape press itself
+  // (it exits the lock at browser level without delivering that keydown to
+  // the page, and the release event is not always observed), so every frame
+  // we read document.pointerLockElement, which is synchronous ground truth:
+  // it is null whenever the pointer is NOT locked. If we still believe the
+  // lock is active but the browser says otherwise, release and pause.
+  if (document.pointerLockElement === canvas) {
+    if (input.pointerCaptured) { lockSure = true; lockReq = false; input.real = true; }
+  } else if (lockSure && input.pointerCaptured && !lockReq) {
+    setFree();
+  }
+}
 canvas.addEventListener('mousedown', e => {
   if (!input.pointerCaptured) {
     if (state === 'play') setCaptured(e);
@@ -244,6 +259,7 @@ addEventListener('mousemove', e => {
       // client coords frozen but movement real: the browser DID lock the
       // pointer (pointerlockchange never confirmed it in this environment)
       input.real = true;
+      lockReq = false;
       dx = mx; dy = my;
     }
   }
@@ -751,6 +767,7 @@ function frame() {
   const now = performance.now();
   const dtr = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
+  syncLockWatch();
   const wk = keys['1'] || keys['2'] || keys['3'] || keys['4'];
   if (wk && !wLatch) {
     if (keys['1']) cur = 0; else if (keys['2']) cur = 1; else if (keys['3']) cur = 2; else cur = 3;
@@ -844,6 +861,8 @@ window.__test = {
   yaw: function () { return [Math.round(P.yaw * 1000) / 1000, Math.round(P.pitch * 1000) / 1000]; },
   cap: function () { return input.pointerCaptured; },
   real: function () { return input.real; },
+  lockst: function () { return [document.pointerLockElement === canvas, input.pointerCaptured, input.real, lockReq, lockSure]; },
+  watch: function () { syncLockWatch(); return [input.pointerCaptured, input.real, lockSure]; },
   fireq: function () { return [input.fire, input.pointerCaptured, paused, Math.round(cool * 10000) / 10000, Math.round(recoil * 10000) / 10000, GRA.length]; },
   apos: function () { return EN.map(e => [Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10, e.alive ? 1 : 0]); },
   ehp: function () { return EN.map(e => Math.round(e.hp * 10) / 10); },
