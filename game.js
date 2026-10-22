@@ -161,10 +161,17 @@ for (const lp of [[-12, -26], [12, 6], [-24, -4], [8, 26]]) {
   head.castShadow = false;
 }
 /* ---------- player + input ---------- */
-const hwP = 0.32, phP = 1.76, eyeH = 1.62, stepH = 0.42;
-const P = { x: 22, y: 0, z: 28, vy: 0, yaw: 2.55, pitch: 0, hp: 100, grounded: true };
+const hwP = 0.32, stepH = 0.42;
+const STAND_H = 1.76, STAND_EYE = 1.62, CROUCH_H = 1.06, CROUCH_EYE = 0.9;
+let phP = STAND_H, eyeH = STAND_EYE;
+const P = { x: 22, y: 0, z: 28, vy: 0, yaw: 2.55, pitch: 0, hp: 100, grounded: true, crouch: false };
 const keys = {};
 function onKey(k, v) {
+  if (k === 'c') {
+    if (v === 1 && !keys.c) P.crouch = !P.crouch;
+    keys.c = v;
+    return;
+  }
   if (k === 'shift') keys.run = v;
   else keys[k] = v;
 }
@@ -266,10 +273,11 @@ addEventListener('mousemove', e => {
   P.yaw -= dx * input.sens;
   P.pitch = cl(P.pitch - dy * input.sens, -1.45, 1.4);
 });
-function sideHit(nx, ny, nz) {
+function sideHit(nx, ny, nz, hgt) {
+  const h = hgt === undefined ? phP : hgt;
   for (const s of ST) {
     if (nx + hwP > s[0] && nx - hwP < s[1] && nz + hwP > s[4] && nz - hwP < s[5] &&
-        s[3] > ny + stepH && s[2] < ny + phP - 0.05) return true;
+        s[3] > ny + stepH && s[2] < ny + h - 0.05) return true;
   }
   return false;
 }
@@ -285,10 +293,10 @@ function playerStep(dt) {
   const f = (keys.w ? 1 : 0) + (keys.arrowup ? 1 : 0) - (keys.s ? 1 : 0) - (keys.arrowdown ? 1 : 0);
   const r = (keys.d ? 1 : 0) + (keys.arrowright ? 1 : 0) - (keys.a ? 1 : 0) - (keys.arrowleft ? 1 : 0);
   const s = Math.hypot(f, r) || 1;
-  const sp = (keys.run ? 7.1 : 4.6) * (P.grounded ? 1 : 0.85);
+  const sp = (P.crouch ? 2.3 : keys.run ? 7.1 : 4.6) * (P.grounded ? 1 : 0.85);
   const wx = (-Math.sin(P.yaw) * f + Math.cos(P.yaw) * r) / s * sp * dt;
   const wz = (-Math.cos(P.yaw) * f - Math.sin(P.yaw) * r) / s * sp * dt;
-  if (keys[' '] && P.grounded) { P.vy = 9.0; P.grounded = false; }
+  if (keys[' '] && P.grounded) { P.crouch = false; P.vy = 9.0; P.grounded = false; }
   const g = groundAt(P.x, P.z, P.y);
   if (!sideHit(P.x + wx, P.y, P.z)) P.x += wx;
   if (!sideHit(P.x, P.y, P.z + wz)) P.z += wz;
@@ -298,6 +306,11 @@ function playerStep(dt) {
   const lim = ARENA - 0.7;
   P.x = cl(P.x, -lim, lim);
   P.z = cl(P.z, -lim, lim);
+  const cr = P.crouch || sideHit(P.x, P.y, P.z, STAND_H);
+  const th = cr ? CROUCH_H : STAND_H, te = cr ? CROUCH_EYE : STAND_EYE;
+  const rate = 5 * dt;
+  phP += cl(th - phP, -rate, rate);
+  eyeH += cl(te - eyeH, -rate, rate);
 }
 /* ---------- targets + hitscan ---------- */
 const EN = [];
@@ -423,8 +436,8 @@ function enemyAI(dt) {
     const tx = e.sx + Math.sin(e.ph * 0.55) * 2.4, tz = e.sz + Math.cos(e.ph * 0.4) * 2.4;
     const k = Math.min(1, dt * 1.35);
     const ex = e.x + (tx - e.x) * k, ez = e.z + (tz - e.z) * k;
-    if (!sideHit(ex, e.y, e.z)) e.x = ex;
-    if (!sideHit(e.x, e.y, ez)) e.z = ez;
+    if (!sideHit(ex, e.y, e.z, STAND_H)) e.x = ex;
+    if (!sideHit(e.x, e.y, ez, STAND_H)) e.z = ez;
     e.y = groundAt(e.x, e.z, e.y);
     e.body.position.set(e.x, e.y + 0.85, e.z);
     e.grp.position.set(e.x, e.y, e.z);
@@ -710,6 +723,7 @@ function setHUD() {
   const wpn = WPN[cur];
   const hpTag = hp < 25 ? '<em class="blink">HP ' + hp + '</em>' : '<b>HP ' + hp + '</b>';
   hudTxt.innerHTML = hpTag + '<i>' + wpn.n + '</i><s>' + kills + ' / ' + EN.length + '</s><q>GRENADES ' + (4 - GRA.length) + '</q>';
+  if (phP < 1.5) hudTxt.innerHTML += '<i>CROUCHED</i>';
   vigEl.style.opacity = String(cl(1 - hp / 60, 0, 0.58));
 }
 function mkBtn(txt) {
@@ -866,6 +880,8 @@ window.__test = {
   fireq: function () { return [input.fire, input.pointerCaptured, paused, Math.round(cool * 10000) / 10000, Math.round(recoil * 10000) / 10000, GRA.length]; },
   apos: function () { return EN.map(e => [Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10, e.alive ? 1 : 0]); },
   ehp: function () { return EN.map(e => Math.round(e.hp * 10) / 10); },
+  crouch: function (v) { if (v !== undefined) P.crouch = !!v; return P.crouch; },
+  eye: function () { return [Math.round(phP * 100) / 100, Math.round(eyeH * 100) / 100, P.crouch ? 1 : 0]; },
   hit: function (i) { const e = EN[i]; aimAt(i); const pc = Math.cos(P.pitch), ps = Math.sin(P.pitch), yc = Math.cos(P.yaw), ys = Math.sin(P.yaw); const fx = -ys * pc, fy = ps, fz = -yc * pc; const ox = P.x + fx * 0.7 + yc * 0.16, oy = P.y + eyeH - 0.06, oz = P.z + fz * 0.7 - ys * 0.16; const h = rayHit(ox, oy, oz, fx, fy, fz, 160); return [Math.round(h.t * 100) / 100, h.en === null ? -1 : EN.indexOf(h.en), h.part]; },
   info: function () { return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, progs: renderer.info.programs.length }; },
   snap: function () {
